@@ -4,38 +4,26 @@ import pandas as pd
 import time
 from datetime import datetime
 
-# --- 1. CONNECT TO DATABASE ---
-gc = gspread.service_account(filename='secrets.json')
-sh = gc.open("IPL_PickEm_DB")
-picks_sheet = sh.worksheet("User_Picks")
-leaderboard_sheet = sh.worksheet("Users_Leaderboard")
-schedule_sheet = sh.worksheet("Match_Schedule_Results")
+# --- 1. CONNECT TO DATABASE (CLOUD VERSION) ---
+# This looks at the 'Secrets' you pasted into the Streamlit Dashboard
+try:
+    gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
+    sh = gc.open("IPL_PickEm_DB")
+    picks_sheet = sh.worksheet("User_Picks")
+    leaderboard_sheet = sh.worksheet("Users_Leaderboard")
+    schedule_sheet = sh.worksheet("Match_Schedule_Results")
+except Exception as e:
+    st.error("Database Connection Failed. Check your Streamlit Secrets!")
+    st.stop()
 
 # --- 2. PAGE SETUP & ADVANCED UI ---
 st.set_page_config(page_title="IPL Pick'Em 2026", page_icon="🏏", layout="wide")
 
-# Custom CSS for Active/Inactive Buttons and Button Feedback
 st.markdown("""
     <style>
-    /* Main Metric Cards */
     .stMetric { background-color: #f8f9fa; padding: 20px; border-radius: 15px; border: 1px solid #e9ecef; }
-    
-    /* Highlight the Active Tab Button */
-    div.stButton > button:first-child {
-        border-radius: 10px;
-        height: 3em;
-        transition: all 0.3s ease;
-    }
-    
-    /* Make the "Enter Arena" button stand out */
-    .main-button button {
-        background-color: #1f77b4 !important;
-        color: white !important;
-        width: 100%;
-        border-radius: 20px !important;
-        font-size: 18px !important;
-        font-weight: bold !important;
-    }
+    div.stButton > button:first-child { border-radius: 10px; height: 3em; transition: all 0.3s ease; }
+    .main-button button { background-color: #1f77b4 !important; color: white !important; width: 100%; border-radius: 20px !important; font-size: 18px !important; font-weight: bold !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -51,18 +39,15 @@ if st.session_state.username is None:
     st.title("🏏 IPL 2026 Advanced Pick'Em")
     st.write("### Sign in to manage your league picks")
     
-    # --- DYNAMIC TAB SWITCHER ---
     col1, col2, _ = st.columns([1, 1, 2])
     
     with col1:
-        # If we are in Login view, make this button blue
         login_type = "primary" if st.session_state.auth_view == "Login" else "secondary"
         if st.button("🔒 GO TO LOGIN", type=login_type, use_container_width=True):
             st.session_state.auth_view = "Login"
             st.rerun()
             
     with col2:
-        # If we are in Register view, make this button blue
         reg_type = "primary" if st.session_state.auth_view == "Register" else "secondary"
         if st.button("📝 NEW ACCOUNT", type=reg_type, use_container_width=True):
             st.session_state.auth_view = "Register"
@@ -70,21 +55,17 @@ if st.session_state.username is None:
     
     st.divider()
 
-    # --- LOGIN FORM ---
     if st.session_state.auth_view == "Login":
         st.subheader("Account Login")
         with st.form("login_form"):
             login_user = st.text_input("Username:")
             login_pass = st.text_input("Password:", type="password")
-            
-            # The "Enter Arena" button with built-in status
             submit_login = st.form_submit_button("ENTER ARENA ➔", use_container_width=True)
             
             if submit_login:
                 with st.spinner("Authenticating..."):
                     users_data = leaderboard_sheet.get_all_records()
                     user_rec = next((item for item in users_data if str(item.get("User_Name", "")) == login_user), None)
-                    
                     if user_rec and str(user_rec.get("Password", "")) == login_pass:
                         st.session_state.username = login_user
                         st.success("Access Granted!")
@@ -93,14 +74,12 @@ if st.session_state.username is None:
                     else:
                         st.error("Invalid Username or Password.")
 
-    # --- REGISTRATION FORM ---
     elif st.session_state.auth_view == "Register":
         st.subheader("Create New Profile")
         with st.form("register_form"):
             new_user = st.text_input("Choose Username:")
             new_pass = st.text_input("Choose Password:", type="password")
             confirm_pass = st.text_input("Confirm Password:", type="password")
-            
             submit_register = st.form_submit_button("CREATE & JOIN LEAGUE ➔", use_container_width=True)
             
             if submit_register:
@@ -122,7 +101,6 @@ if st.session_state.username is None:
 
 # --- 5. MAIN APP (LOGGED IN VIEW) ---
 else:
-    # (Sidebars and main pages remain the same, ensuring 'username' is used throughout)
     st.sidebar.title(f"👤 {st.session_state.username}")
     if st.sidebar.button("Logout"):
         st.session_state.username = None
@@ -131,26 +109,21 @@ else:
         
     page = st.sidebar.radio("Navigation", ["📊 Dashboard", "🎯 Make Picks", "🏆 Leaderboard", "📜 Rules & Schedule"])
     
-    # --- DASHBOARD PAGE ---
     if page == "📊 Dashboard":
         st.title("Player Dashboard")
-        
         lb_data = leaderboard_sheet.get_all_records()
         stats = next((item for item in lb_data if str(item.get("User_Name", "")) == st.session_state.username), None)
-        
         all_picks = picks_sheet.get_all_records()
         sch_data = schedule_sheet.get_all_records()
         user_picks = [p for p in all_picks if str(p.get('User_Name', '')) == st.session_state.username]
         
         projected_pts = 0
         live_matches = [m for m in sch_data if str(m.get("Status", "")).strip() in ["Live", "In Progress"]]
-        
         for m in live_matches:
             match_pick = next((p for p in user_picks if p['Match_ID'] == m['Match_ID']), None)
-            if match_pick:
-                if str(match_pick['Predicted_Winner']) == str(m['Winner']):
-                    val = 20 if str(match_pick['Used_PowerPlay']).lower() == 'true' else 10
-                    projected_pts += val
+            if match_pick and str(match_pick['Predicted_Winner']) == str(m['Winner']):
+                val = 20 if str(match_pick['Used_PowerPlay']).lower() == 'true' else 10
+                projected_pts += val
 
         if stats:
             m1, m2, m3 = st.columns(3)
@@ -181,7 +154,6 @@ else:
                     c2.write(f"⚡ **Power Play:** {pp}")
                     c3.write(f"🔢 **Tiebreaker:** {t_runs} runs")
 
-    # --- MAKE PICKS PAGE ---
     elif page == "🎯 Make Picks":
         st.title("Tournament Predictions")
         picks = picks_sheet.get_all_records()
@@ -215,7 +187,6 @@ else:
                                 picks_sheet.append_row([ts, st.session_state.username, mid, winner, str(pp), tie])
                             st.rerun()
 
-    # --- LEADERBOARD PAGE ---
     elif page == "🏆 Leaderboard":
         st.title("Rankings")
         t_season, t_weekly = st.tabs(["Season Standings", "Weekly Winners"])
@@ -228,7 +199,6 @@ else:
         with t_weekly:
             st.info("Weekly King results appear here after grading!")
 
-    # --- RULES & SCHEDULE PAGE ---
     elif page == "📜 Rules & Schedule":
         st.title("League Information")
         with st.expander("📖 View Official Rules"):
