@@ -92,13 +92,20 @@ fetch_live_scores_from_cloud()
 # --- 3. PAGE SETUP & UI POLISH ---
 st.set_page_config(page_title="IPL Pick'Em", page_icon="🏏", layout="centered")
 
-# The CSS magic to hide the dev tools and clean up the look
+# The CSS magic to hide ALL developer tools, watermarks, and floating icons
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;} /* Hides the hamburger menu */
-    header {visibility: hidden;} /* Hides the top right Manage App button */
-    footer {visibility: hidden;} /* Hides the Streamlit watermark */
-    .stDeployButton {display:none;}
+    #MainMenu {visibility: hidden;} 
+    header {visibility: hidden;} 
+    footer {visibility: hidden;} 
+    .stDeployButton {display: none;}
+    
+    /* Hides the Streamlit floating watermark and GitHub icons at the bottom */
+    [data-testid="stToolbar"] {visibility: hidden !important;}
+    [data-testid="manage-app-button"] {display: none !important;}
+    a[href^="https://streamlit.io/cloud"] {display: none !important;}
+    div[data-testid="stDecoration"] {visibility: hidden !important;}
+    
     .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; }
     </style>
     """, unsafe_allow_html=True)
