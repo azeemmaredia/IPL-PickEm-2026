@@ -6,10 +6,8 @@ from datetime import datetime
 import requests
 
 # --- 1. SETTINGS & CLOUD DATABASE CONNECT ---
-# The site uses your RapidAPI key to fetch scores
 RAPIDAPI_KEY = "676f0b3707msh73bee328eb66010p111aa6jsn5a146c1321cb"
 
-# The Translation Brain
 TEAM_MAPPING = {
     "RCB": "Royal Challengers Bengaluru",
     "CSK": "Chennai Super Kings",
@@ -36,7 +34,6 @@ except Exception as e:
     st.stop()
 
 # --- 2. ZERO-TOUCH AUTO UPDATER ---
-# ttl=300 means this function is only allowed to run ONCE every 5 minutes.
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_live_scores_from_cloud():
     url = "https://cricbuzz-cricket.p.rapidapi.com/matches/v1/live"
@@ -81,7 +78,7 @@ def fetch_live_scores_from_cloud():
                     updates.append({'range': f'G{sheet_row}', 'values': [[m['status']]]})
                     if not current_api_id:
                         updates.append({'range': f'J{sheet_row}', 'values': [[m['id']]]})
-                    break # Move to next sheet row
+                    break 
                     
         if updates: 
             schedule_sheet.batch_update(updates)
@@ -89,17 +86,20 @@ def fetch_live_scores_from_cloud():
     except Exception as e:
         return False
 
-# 🚨 TRIGGER THE AUTO-UPDATER EVERY TIME SOMEONE LOADS THE PAGE
 fetch_live_scores_from_cloud()
 
 
-# --- 3. PAGE SETUP & UI ---
-st.set_page_config(page_title="IPL Pick'Em 2026", page_icon="🏏", layout="wide")
+# --- 3. PAGE SETUP & UI POLISH ---
+st.set_page_config(page_title="IPL Pick'Em", page_icon="🏏", layout="centered")
 
+# The CSS magic to hide the dev tools and clean up the look
 st.markdown("""
     <style>
-    .stMetric { background-color: #f8f9fa; padding: 20px; border-radius: 15px; border: 1px solid #e9ecef; }
-    div.stButton > button:first-child { border-radius: 10px; height: 3em; transition: all 0.3s ease; }
+    #MainMenu {visibility: hidden;} /* Hides the hamburger menu */
+    header {visibility: hidden;} /* Hides the top right Manage App button */
+    footer {visibility: hidden;} /* Hides the Streamlit watermark */
+    .stDeployButton {display:none;}
+    .stMetric { background-color: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #e9ecef; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -111,31 +111,29 @@ if 'auth_view' not in st.session_state:
 
 # --- 5. LANDING PAGE (LOGIN / REGISTER) ---
 if st.session_state.username is None:
-    st.title("🏏 IPL 2026 Advanced Pick'Em")
-    st.write("### Sign in to manage your league picks")
+    st.markdown("### 🏏 IPL Pick'Em")
     
-    col1, col2, _ = st.columns([1, 1, 2])
+    col1, col2 = st.columns([1, 1])
     
     with col1:
         login_type = "primary" if st.session_state.auth_view == "Login" else "secondary"
-        if st.button("🔒 GO TO LOGIN", type=login_type, use_container_width=True):
+        if st.button("Login", type=login_type):
             st.session_state.auth_view = "Login"
             st.rerun()
             
     with col2:
         reg_type = "primary" if st.session_state.auth_view == "Register" else "secondary"
-        if st.button("📝 NEW ACCOUNT", type=reg_type, use_container_width=True):
+        if st.button("Register", type=reg_type):
             st.session_state.auth_view = "Register"
             st.rerun()
     
     st.divider()
 
     if st.session_state.auth_view == "Login":
-        st.subheader("Account Login")
         with st.form("login_form"):
             login_user = st.text_input("Username:")
             login_pass = st.text_input("Password:", type="password")
-            submit_login = st.form_submit_button("ENTER ARENA ➔", use_container_width=True)
+            submit_login = st.form_submit_button("Enter")
             
             if submit_login:
                 with st.spinner("Authenticating..."):
@@ -150,12 +148,11 @@ if st.session_state.username is None:
                         st.error("Invalid Username or Password.")
 
     elif st.session_state.auth_view == "Register":
-        st.subheader("Create New Profile")
         with st.form("register_form"):
             new_user = st.text_input("Choose Username:")
             new_pass = st.text_input("Choose Password:", type="password")
             confirm_pass = st.text_input("Confirm Password:", type="password")
-            submit_register = st.form_submit_button("CREATE & JOIN LEAGUE ➔", use_container_width=True)
+            submit_register = st.form_submit_button("Create Account")
             
             if submit_register:
                 if new_pass != confirm_pass:
@@ -203,8 +200,8 @@ else:
         if stats:
             m1, m2, m3 = st.columns(3)
             m1.metric("🏆 Season Points", stats.get("Total_Points", 0))
-            m2.metric("⚡ Power Plays Left", stats.get("Power_Plays_Remaining", 0))
-            m3.metric("📈 Live Projection", f"+{projected_pts}")
+            m2.metric("⚡ Power Plays", stats.get("Power_Plays_Remaining", 0))
+            m3.metric("📈 Live Proj.", f"+{projected_pts}")
         
         st.divider()
         st.subheader("🔴 Match Center")
@@ -226,11 +223,11 @@ else:
                     st.markdown(f"**Match:** `{p.get('Match_ID', 'N/A')}`")
                     c1, c2, c3 = st.columns(3)
                     c1.write(f"🏆 **Winner:** {p.get('Predicted_Winner')}")
-                    c2.write(f"⚡ **Power Play:** {pp}")
-                    c3.write(f"🔢 **Tiebreaker:** {t_runs} runs")
+                    c2.write(f"⚡ **PP:** {pp}")
+                    c3.write(f"🔢 **Tiebreaker:** {t_runs}")
 
     elif page == "🎯 Make Picks":
-        st.title("Tournament Predictions")
+        st.title("Predictions")
         picks = picks_sheet.get_all_records()
         user_match_ids = [p['Match_ID'] for p in picks if str(p.get('User_Name', '')) == st.session_state.username]
         sch = schedule_sheet.get_all_records()
