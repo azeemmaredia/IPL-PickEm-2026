@@ -3,9 +3,28 @@ import gspread
 import pandas as pd
 import time
 from datetime import datetime
+import requests
 
-# --- 1. CONNECT TO DATABASE (CLOUD VERSION) ---
-# This looks at the 'Secrets' you pasted into the Streamlit Dashboard
+# --- 1. SETTINGS & CLOUD DATABASE CONNECT ---
+# The site uses your RapidAPI key to fetch scores
+RAPIDAPI_KEY = "676f0b3707msh73bee328eb66010p111aa6jsn5a146c1321cb"
+
+# The Translation Brain
+TEAM_MAPPING = {
+    "RCB": "Royal Challengers Bengaluru",
+    "CSK": "Chennai Super Kings",
+    "MI": "Mumbai Indians",
+    "KKR": "Kolkata Knight Riders",
+    "SRH": "Sunrisers Hyderabad",
+    "RR": "Rajasthan Royals",
+    "DC": "Delhi Capitals",
+    "PBKS": "Punjab Kings",
+    "GT": "Gujarat Titans",
+    "LSG": "Lucknow Super Giants",
+    "NZW": "New Zealand Women",
+    "RSAW": "South Africa Women"
+}
+
 try:
     gc = gspread.service_account_from_dict(st.secrets["gcp_service_account"])
     sh = gc.open("IPL_PickEm_DB")
@@ -16,25 +35,81 @@ except Exception as e:
     st.error("Database Connection Failed. Check your Streamlit Secrets!")
     st.stop()
 
-# --- 2. PAGE SETUP & ADVANCED UI ---
+# --- 2. ZERO-TOUCH AUTO UPDATER ---
+# ttl=300 means this function is only allowed to run ONCE every 5 minutes.
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_live_scores_from_cloud():
+    url = "https://cricbuzz-cricket.p.rapidapi.com/matches/v1/live"
+    try:
+        headers = {
+            "X-RapidAPI-Key": RAPIDAPI_KEY,
+            "X-RapidAPI-Host": "cricbuzz-cricket.p.rapidapi.com"
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200: return False
+        
+        data = response.json()
+        matches_found = []
+        
+        for match_type in data.get('typeMatches', []):
+            for series in match_type.get('seriesMatches', []):
+                wrapper = series.get('seriesAdWrapper', series)
+                if isinstance(wrapper, dict) and 'matches' in wrapper:
+                    for match_obj in wrapper['matches']:
+                        match_info = match_obj.get('matchInfo', {})
+                        m_id = str(match_info.get('matchId', ''))
+                        t1 = match_info.get('team1', {}).get('teamSName', '')
+                        t2 = match_info.get('team2', {}).get('teamSName', '')
+                        status = match_info.get('status', 'In Progress')
+                        
+                        if m_id:
+                            full_t1 = TEAM_MAPPING.get(t1, t1)
+                            full_t2 = TEAM_MAPPING.get(t2, t2)
+                            matches_found.append({'id': m_id, 'team1': full_t1, 'team2': full_t2, 'status': status})
+        
+        all_rows = schedule_sheet.get_all_records()
+        updates = []
+        for i, row in enumerate(all_rows):
+            sheet_row = i + 2
+            sheet_home = str(row.get('Home_Team', '')).strip()
+            sheet_away = str(row.get('Away_Team', '')).strip()
+            current_api_id = str(row.get('API_Match_ID', '')).strip()
+            
+            for m in matches_found:
+                teams_match = (m['team1'] in [sheet_home, sheet_away]) and (m['team2'] in [sheet_home, sheet_away])
+                if teams_match or (current_api_id == m['id']):
+                    updates.append({'range': f'G{sheet_row}', 'values': [[m['status']]]})
+                    if not current_api_id:
+                        updates.append({'range': f'J{sheet_row}', 'values': [[m['id']]]})
+                    break # Move to next sheet row
+                    
+        if updates: 
+            schedule_sheet.batch_update(updates)
+        return True
+    except Exception as e:
+        return False
+
+# 🚨 TRIGGER THE AUTO-UPDATER EVERY TIME SOMEONE LOADS THE PAGE
+fetch_live_scores_from_cloud()
+
+
+# --- 3. PAGE SETUP & UI ---
 st.set_page_config(page_title="IPL Pick'Em 2026", page_icon="🏏", layout="wide")
 
 st.markdown("""
     <style>
     .stMetric { background-color: #f8f9fa; padding: 20px; border-radius: 15px; border: 1px solid #e9ecef; }
     div.stButton > button:first-child { border-radius: 10px; height: 3em; transition: all 0.3s ease; }
-    .main-button button { background-color: #1f77b4 !important; color: white !important; width: 100%; border-radius: 20px !important; font-size: 18px !important; font-weight: bold !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. APP MEMORY (SESSION STATE) ---
+# --- 4. APP MEMORY (SESSION STATE) ---
 if 'username' not in st.session_state:
     st.session_state.username = None
-
 if 'auth_view' not in st.session_state:
     st.session_state.auth_view = "Login"
 
-# --- 4. LANDING PAGE (LOGIN / REGISTER) ---
+# --- 5. LANDING PAGE (LOGIN / REGISTER) ---
 if st.session_state.username is None:
     st.title("🏏 IPL 2026 Advanced Pick'Em")
     st.write("### Sign in to manage your league picks")
@@ -99,7 +174,7 @@ if st.session_state.username is None:
                             st.session_state.username = new_user
                             st.rerun()
 
-# --- 5. MAIN APP (LOGGED IN VIEW) ---
+# --- 6. MAIN APP (LOGGED IN VIEW) ---
 else:
     st.sidebar.title(f"👤 {st.session_state.username}")
     if st.sidebar.button("Logout"):
